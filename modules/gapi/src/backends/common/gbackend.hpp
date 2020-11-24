@@ -23,12 +23,26 @@ namespace cv {
 namespace gimpl {
 
     inline cv::Mat asMat(RMat::View& v) {
+#if !defined(GAPI_STANDALONE)
+        return v.dims().empty() ? cv::Mat(v.rows(), v.cols(), v.type(), v.ptr(), v.step())
+                                : cv::Mat(v.dims(), v.type(), v.ptr(), v.steps().data());
+#else
+        // FIXME: add a check that steps are default
         return v.dims().empty() ? cv::Mat(v.rows(), v.cols(), v.type(), v.ptr(), v.step())
                                 : cv::Mat(v.dims(), v.type(), v.ptr());
+
+#endif
     }
     inline RMat::View asView(const Mat& m, RMat::View::DestroyCallback&& cb = nullptr) {
-        // FIXME: View doesn't support multidimensional cv::Mat's
+#if !defined(GAPI_STANDALONE)
+        RMat::View::stepsT steps(m.dims);
+        for (int i = 0; i < m.dims; i++) {
+            steps[i] = m.step[i];
+        }
+        return RMat::View(cv::descr_of(m), m.data, steps, std::move(cb));
+#else
         return RMat::View(cv::descr_of(m), m.data, m.step, std::move(cb));
+#endif
     }
 
     class RMatAdapter : public RMat::Adapter {
@@ -48,6 +62,8 @@ namespace magazine {
     template<typename... Ts> struct Class
     {
         template<typename T> using MapT = std::unordered_map<int, T>;
+        using MapM = std::unordered_map<int, GRunArg::Meta>;
+
         template<typename T>       MapT<T>& slot()
         {
             return std::get<ade::util::type_list_index<T, Ts...>::value>(slots);
@@ -56,8 +72,17 @@ namespace magazine {
         {
             return std::get<ade::util::type_list_index<T, Ts...>::value>(slots);
         }
+        template<typename T> MapM& meta()
+        {
+            return metas[ade::util::type_list_index<T, Ts...>::value];
+        }
+        template<typename T> const MapM& meta() const
+        {
+            return metas[ade::util::type_list_index<T, Ts...>::value];
+        }
     private:
         std::tuple<MapT<Ts>...> slots;
+        std::array<MapM, sizeof...(Ts)> metas;
     };
 
 } // namespace magazine
